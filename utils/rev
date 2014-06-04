@@ -1,0 +1,6 @@
+#!/bin/sh
+
+date=`date +%y%m%d-%H%M`
+rev=`git rev-list --full-history --all --count`
+hash=`git rev-list --max-count=1 --full-history --all --abbrev=4 --abbrev-commit`
+printf "%s-%03d:%s\n" $date $rev $hash

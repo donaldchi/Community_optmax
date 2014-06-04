@@ -1,0 +1,10 @@
+*/*.txt
+*/*.bin
+*/*.e
+*/*.o
+*/*.tree
+*/*.sh
+*/*.csv
+*/cluster
+*/coefficient
+*/community

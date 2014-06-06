@@ -54,15 +54,20 @@ Community::Community(char * filename, char * filename_w, char * filename_coe, in
   n2c.resize(size);
   in.resize(size);
   tot.resize(size);
+  isChanged.resize(size);
+  changedComm.resize(size);
 
   for (int i=0 ; i<size ; i++) {
     n2c[i] = i;
     tot[i] = g.weighted_degree(i);
     in[i]  = g.nb_selfloops(i);
+    isChanged[i]   = false;
+    changedComm[i] = -1;
   }
 
   nb_pass = nbp;
   min_modularity = minm;
+  node_deg = 0;
   //read coefficient file 
   /*ifstream finput_c;
   finput_c.open(filename_coe,fstream::in | fstream::binary);
@@ -84,15 +89,20 @@ Community::Community(Graph gc, int nbp, double minm) {
   n2c.resize(size);
   in.resize(size);
   tot.resize(size);
+  isChanged.resize(size);
+  changedComm.resize(size);
 
   for (int i=0 ; i<size ; i++) {
     n2c[i] = i;
     in[i]  = g.nb_selfloops(i);
     tot[i] = g.weighted_degree(i);
+    isChanged[i] = false;
+    changedComm[i] = -1;
   }
 
   nb_pass = nbp;
   min_modularity = minm;
+  node_deg = 0;
 }
 
 void
@@ -192,6 +202,43 @@ Community::neigh_comm(unsigned int node) {
     }
   }
   return deg;
+}
+
+inline bool
+Community::neigh_comm( unsigned int node, unsigned int nb_pass_done ) {
+  bool isCompute = false;
+  for (unsigned int i=0 ; i<neigh_last ; i++)
+    neigh_weight[neigh_pos[i]]=-1;
+  neigh_last=0;
+
+  pair<vector<unsigned int>::iterator, vector<float>::iterator> p = g.neighbors(node);
+
+  unsigned int deg = g.nb_neighbors(node);
+  node_deg = 0;
+  node_deg = deg;
+  neigh_pos[0]=n2c[node];
+  neigh_weight[neigh_pos[0]]=0;
+  neigh_last=1;
+
+  for (unsigned int i=0 ; i<deg ; i++) {
+    unsigned int neigh        = *(p.first+i);
+    unsigned int neigh_comm   = n2c[neigh];
+    double neigh_w = (g.weights.size()==0)?1.:*(p.second+i);
+    if( nb_pass_done !=1 && isChanged[neigh_comm] ){
+        isCompute = true;
+        //continue;
+    }
+    if (neigh!=node) {
+      if (neigh_weight[neigh_comm]==-1) {
+        neigh_weight[neigh_comm]=0.;
+        neigh_pos[neigh_last++]=neigh_comm;
+    }
+      neigh_weight[neigh_comm]+=neigh_w;
+    }
+  }
+  if(nb_pass_done == 1) return true;
+  return isCompute;
+  //return deg;
 }
 
 void
@@ -305,6 +352,8 @@ Community::one_level( int level, char * fileName ) {
   int nb_pass_done = 0;
   double new_mod   = modularity();
   double cur_mod   = new_mod;
+  //for changing heuristics automatically when the compute efficiency is decreasing.
+  bool change = false;
 
   vector<int> random_order(size);
   for (int i=0 ; i<size ; i++)
@@ -321,9 +370,9 @@ Community::one_level( int level, char * fileName ) {
   //   or there is an improvement of modularity greater than a given epsilon 
   //   or a predefined number of pass have been done
   int nodeTimes = 0;
-  double before = cur_mod;
-  clock_t start, finish;
-  start = clock();
+  double before1 = cur_mod;
+  double before2 = 0; 
+  int t = 0;
   do {
     cur_mod = new_mod;
     nb_moves = 0;
@@ -337,7 +386,9 @@ Community::one_level( int level, char * fileName ) {
       double w_degree = g.weighted_degree(node);
 
       // computation of all neighboring communities of current node
-      int deg = neigh_comm(node);
+      //int deg = neigh_comm(node);
+      bool isCompute = neigh_comm(node, nb_pass_done);
+      if( !isCompute ) continue;
       // remove node from its current community
       remove(node, node_comm, neigh_weight[node_comm]);
 
@@ -349,7 +400,7 @@ Community::one_level( int level, char * fileName ) {
       bool isNum = false;
       #define MAX_CMP 3
 
-      if( /*level == 0 &&*/neigh_last > MAX_CMP && (level!=0  || nb_pass_done > 3 ) ) {
+      if( level == 0 && neigh_last > MAX_CMP && change ) {
         vector<Pair> comm_weight;
         for (int i = 1; i < neigh_last; ++i)
         {
@@ -377,17 +428,17 @@ Community::one_level( int level, char * fileName ) {
       } else {
         //logmod.push_back(LogMod( nb_pass_done, node, deg, best_nblinks, best_increase));
         pair<vector<unsigned int>::iterator, vector<float>::iterator> p = g.neighbors(node);
-                if(/*neigh_last*/deg > MAX_CMP)
+                if(/*neigh_last*/node_deg > MAX_CMP)
                 {
                 //int index = rand()%neigh_last;
                 //int index = rand()%deg;
-                int index = rand() % deg; 
+                int index = rand() % node_deg; 
                 for(int i = 1 ; i < MAX_CMP; i++ ){ 
                   int neigh_node  = *(p.first + index);
                   if (node == neigh_node) 
                     {
-                      if ( deg <= 6 ) index = ( index + 1 ) %deg;
-                      else index = rand() % deg; 
+                      if ( node_deg <= 6 ) index = ( index + 1 ) %node_deg;
+                      else index = rand() % node_deg; 
                       continue;
                     } 
                   int theN2C = n2c[neigh_node];
@@ -400,8 +451,8 @@ Community::one_level( int level, char * fileName ) {
                     best_nblinks  = theWeight;
                     best_increase = increase;
                     }
-                  if ( deg <= 6 ) index = ( index + 1 ) %deg;
-                  else index = rand() % deg; 
+                  if ( node_deg <= 6 ) index = ( index + 1 ) %node_deg;
+                  else index = rand() % node_deg; 
                 }
                 }
                 else {
@@ -420,45 +471,35 @@ Community::one_level( int level, char * fileName ) {
                 }
                 }
       }
-
-      // compute the nearest community for node
-      // default choice for future insertion is the former community
-      /*int    comSize = 0;
-      int    best_comm     = node_comm;
-      double best_nblinks  = neigh_weight[best_comm];
-      double best_increase = modularity_gain(node, best_comm, best_nblinks, w_degree);
-      comSize = getCommSize(best_comm);
-      if(level == 0) logmod.push_back(LogMod( nb_pass_done, node, deg, best_nblinks, best_increase, (double)commCoeff[best_comm], (double)commCoeff[best_comm] * (tot[best_comm] - in[best_comm])));
-      for (unsigned int i = 1 ; i < neigh_last; i++) {
-          int    theN2C    = neigh_pos[i];
-          double theWeight = neigh_weight[theN2C];
-          double increase  = modularity_gain(node, theN2C, theWeight, w_degree);
-          comSize = getCommSize(theN2C);
-          if(level == 0) logmod.push_back(LogMod( nb_pass_done, node, deg, theWeight, increase, (double)commCoeff[theN2C], (double)commCoeff[theN2C] *(tot[theN2C] - in[theN2C])));
-          if (increase > best_increase) {
-              best_comm     = theN2C;
-              best_nblinks  = theWeight;
-              best_increase = increase;
-          }
-      }*/
-
       // insert node in the nearest community
       insert(node, best_comm, best_nblinks);
-      // if (isNum && level == 0){
-      //    double newMod = modularity();
-      //    logdelta.push_back(LogDeltaMod(newMod - before));
-      //    //finish = clock();
-      //    //logtime.push_back(LogTime( (double)(finish-start)/CLOCKS_PER_SEC ));
-      //    logmod.push_back(LogMod( newMod ));
-      //    before = newMod;
-      //    nodeTimes = 0;
-      //    isNum = false;
-      // }
+      if (isNum && level == 0){
+         double newMod = modularity();
+         //logdelta.push_back(LogDeltaMod(newMod - before1));
+         logmod.push_back(LogMod( newMod ));
+        double deltaMod1 = before1 - before2;
+        double deltaMod2 = newMod  - before1;
+        if( deltaMod2 - deltaMod1 < 0. ) change = true;
+        before2 = before1;
+        before1 = newMod;
+         nodeTimes = 0;
+         isNum = false;
+         t++;
+      }
 
-      if (best_comm!=node_comm)
+      if (best_comm!=node_comm){
+        changedComm[best_comm] = 1;
+        changedComm[node_comm] = 1;
         nb_moves++;
+      }
     }
-
+    isChanged.clear();
+    for (int i = 0; i < size; ++i)
+    {
+      int changed = changedComm[i];
+      isChanged[i] = ( changed > 0 ) ? true : false;
+      changedComm[i] = -1;
+    }
     new_mod = modularity();
     // cerr<<" Pass"<<nb_pass_done<<" ::"<<new_mod<<endl;
     if (nb_moves>0)
@@ -467,23 +508,23 @@ Community::one_level( int level, char * fileName ) {
   } while (nb_moves>0 && new_mod-cur_mod>min_modularity);
   if (level == 0)
   {
-    // ofstream csvdelta;//csvbest, csvdelta, sv1, csv2, csvDetail, csvmove;
-    // time_t  nowtime = time(NULL);  
-    // struct  tm  *p;  
-    // p = gmtime(&nowtime);  
-    // char    filename[256] = {0};
-    // sprintf(filename, "/Users/donaldchi/Dropbox/x10/Data/BlondelMethod/%s-%d-mod-optmax2.csv", basename(fileName), level);  
-    // csvdelta.open(filename);
-    // for (vector<LogMod>::iterator iter1 = logmod.begin(); iter1 != logmod.end(); ++iter1) {
-    //   LogMod entry1 = *iter1;
-    //   csvdelta << entry1.increase << endl;
-    //   csvdelta << entry1.passNum << ",\t" << entry1.nodeNum    << ",\t" 
-    //            << entry1.src_deg << ",\t" << entry1.edgeWeight << ",\t"
-    //            << entry1.dst     << ",\t" << entry1.dst_tot    << ",\t" 
-    //            << entry1.dst_in  << ",\t" << entry1.increase <<endl;
-    // }
-    // csvdelta.close();
-    //     sprintf(filename, "/Users/donaldchi/Dropbox/x10/Data/BlondelMethod/%s-%d-deltaQ-optmax2.csv", basename(fileName), level);  
+    ofstream csvdelta;//csvbest, csvdelta, sv1, csv2, csvDetail, csvmove;
+    time_t  nowtime = time(NULL);  
+    struct  tm  *p;  
+    p = gmtime(&nowtime);  
+    char    filename[256] = {0};
+    sprintf(filename, "/Users/donaldchi/Dropbox/x10/Data/ChangeTime/%s-%d-mod-optmax-time-auto.csv", basename(fileName), level);  
+    csvdelta.open(filename);
+    for (vector<LogMod>::iterator iter1 = logmod.begin(); iter1 != logmod.end(); ++iter1) {
+      LogMod entry1 = *iter1;
+      csvdelta << entry1.increase << endl;
+      // csvdelta << entry1.passNum << ",\t" << entry1.nodeNum    << ",\t" 
+      //          << entry1.src_deg << ",\t" << entry1.edgeWeight << ",\t"
+      //          << entry1.dst     << ",\t" << entry1.dst_tot    << ",\t" 
+      //          << entry1.dst_in  << ",\t" << entry1.increase <<endl;
+    }
+    csvdelta.close();
+    //     sprintf(filename, "/Users/donaldchi/Dropbox/x10/Data/OptMaxToOptMaxPlusRC/%s-%d-deltaMod-optmax-time.csv", basename(fileName), level);  
     // csvdelta.open(filename);
     // for (vector<LogDeltaMod>::iterator iter1 = logdelta.begin(); iter1 != logdelta.end(); ++iter1) {
     //   LogDeltaMod entry1 = *iter1;

@@ -42,10 +42,12 @@ class Community {
 
   vector<int> n2c; // community to which each node belongs
   vector<double> in,tot; // used to compute the modularity participation of each community
-
+  vector<bool> isChanged;
+  vector<int>  changedComm;
   // number of pass for one level computation
   // if -1, compute as many pass as needed to increase modularity
   int nb_pass;
+  int node_deg = 0;
 
   // a new pass is computed if the last one has generated an increase 
   // greater than min_modularity
@@ -98,6 +100,7 @@ class Community {
   // compute the set of neighboring communities of node
   // for each community, gives the number of links from node to comm
   inline int neigh_comm(unsigned int node);
+  inline bool neigh_comm( unsigned int node, unsigned int nb_pass_done );
 
   // compute the modularity of the current partition
   double modularity();

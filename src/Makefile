@@ -1,8 +1,8 @@
 #!/bin/bash
 
-CXX=clang++ -std=c++11
+CXX=clang++ -std=c++11 -O3   
 CFLAGS=  -O3 -Wall
-LDFLAGS=  -lm -Wall
+LDFLAGS= -lm -Wall
 ALL=community convert hierarchy coefficient
 OBJ1= graph_binary.o community.o
 OBJ2= graph.o
@@ -21,7 +21,7 @@ hierarchy : main_hierarchy.o
 coefficient : $(OBJ1) main_coefficient.o
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-.PHONY: install
+.HONY: install
 
 install: all
 	cp $(ALL) ../bin
